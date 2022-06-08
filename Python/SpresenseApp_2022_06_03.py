@@ -29,7 +29,7 @@ def my_update_image(image_file, resize):
     im = Image.open(image_file, formats=None)
     if resize == True:
         im = im.resize(my_UI_image_frame_size, resample=Image.BICUBIC)
-    return im
+    #return im
 
         
 #-------------------------------------------------
@@ -317,7 +317,7 @@ def update_the_user_interface(line_num,ini_pram):
 #-------------------------------------------------
 #---START UP CODE---------------------------------
 terminal_line_list = []     #list that holds the terminal window data
-im = my_update_image("Spresense_Splash3.JPG",resize=True)
+my_update_image("Spresense_Splash3.JPG",resize=True)
 sg.theme('DarkGreen3')
 my_bg_color = sg.theme_input_background_color()
 
