@@ -51,23 +51,23 @@ def connect_to_spresense():
     for port, desc, hwid in sorted(ports):
         if (hwid[12:21]) == '10C4:EA60':  # if vid pid match Spresense board then you found it
             my_port = port.lower()
-            print('Spresense found on', my_port)
-            print('Initialization in progress...')
+            mprint('Spresense found on', my_port)
+            mprint('Initialization in progress...')
             abort_app = False
             break
 
     if abort_app:
-        # print('*** DID NOT FIND CONNECTED SPRESENSE MODULE ***')
-        sg.popup('Spresense Module Not Found!\nPlease exit this application', font=('Ariel', 20, 'bold'),
-                 text_color='red')
-        return abort_app
+        mprint('*** DID NOT FIND SPRESENSE MODULE ***')
+        sg.popup_ok('Spresense Module Not Found!\nPlease exit the application', font=('Ariel', 20, 'bold'))
+        mprint('*** PLEASE MANUALLY CLOSE WINDOW  ***')
+        return abort_app  # returns True
     else:
         ser = serial.Serial(my_port, 1200000, timeout=7)
         time.sleep(2.5)  # Spresense reboots when the com port shows up (and it is slow)
         # get_camera_settings()                                   # Get Spresense default camera parameters
         # parameter_from_spresense()
-        print('Initialization Complete...')
-        return abort_app
+        mprint('Initialization Complete...')
+        return abort_app  # returns False
 
 
 # -------------------------------------------------
@@ -78,13 +78,20 @@ sg.theme('DarkGreen3')
 my_bg_color = sg.theme_input_background_color()
 
 my_tab1_layout = [
-    [sg.Text("Frame per Second:")],
-    [sg.Text(expand_x=True, justification='center', text_color='black', background_color=my_bg_color, key='-FPS-'),
-     sg.Text('FPS')],
+    [sg.Frame('Streaming', [
+        [sg.Checkbox('Active'), sg.T('Frame Rate:'),
+         sg.Combo(['5 FPS', '6 FPS', '7.5 FPS', '15 FPS', '30 FPS', '60 FPS', '120 FPS'], size=(8, 1),
+                  default_value='5 FPS', readonly=True, enable_events=True, key='-PIX_FPS-')],
+        [sg.Text('Image size in pixels:')],
+        [sg.T('Width:', pad=((12, 5), (0, 0))), sg.Input(size=5, enable_events=True, key='-SW-'), sg.T('X'),
+         sg.T('Height:'), sg.Input(size=5, enable_events=True, key='-SH-')],
+        [sg.T('Format:'), sg.Combo(['RGB565', 'YUV422', 'JPG', 'GRAY', 'NONE'], s=(7, 1), default_value='JPG',
+                                   readonly=True, key='-PIX_FMT-')],
+        [sg.T('Div'), sg.T('Buffer Size'), sg.T('Buffers')]
+    ])]
 ]
 my_tab2_layout = []
 my_tab3_layout = []
-
 my_tabs_group_layout = [
     [sg.Tab('Camera', my_tab1_layout, key='-TAB1-'),
      sg.Tab('Debug1', my_tab2_layout, key='-TAB2-'),
@@ -99,10 +106,13 @@ left_column = [
 ]
 
 middle_column = [
-    [sg.Text('Streaming Image Buffer', justification='center', expand_x=True)],
-    [sg.Image(size=(250, 200), pad=(130, 1), key='-STREAMING_IMAGE-')],
-    [sg.Text('Still Image Buffer')],
-    [sg.Image(size=(500, 400), key='-STILL_IMAGE-')],
+    [sg.Text('Streaming Image Buffer', pad=(100, 0))],
+    [sg.Image(size=(250, 200), pad=((100, 0), (0, 10)), key='-STREAMING_IMAGE-'),
+     sg.Text('Actual:'),
+     sg.Text(size=(5, 1), text_color='black', background_color=my_bg_color, key='-FPS-'),
+     sg.Text('FPS')],
+    [sg.Text('Still Image Buffer', pad=(0, 0))],
+    [sg.Image(size=(500, 400), pad=((0, 0), (0, 0)), key='-STILL_IMAGE-')],
     [sg.Text('Working images above are fixed sizes.', justification='center', expand_x=True)],
     [sg.Text('To view full resolution images, see filenames to the right.', justification='center', expand_x=True)]
 ]
@@ -113,36 +123,46 @@ right_column = [
 ]
 
 layout = [
-    [sg.Column(left_column),
+    [sg.VerticalSeparator(),
+     sg.Column(left_column),
      sg.VerticalSeparator(),
      sg.Column(middle_column),
      sg.VerticalSeparator(),
      sg.Column(right_column),
-     sg.VerticalSeparator()]
+     sg.VerticalSeparator()],
+    [sg.StatusBar('Status Bar...', size=80, key='-STAT_BAR-')]
 ]
 
 window = sg.Window('Spresense Camera App', layout, margins=(0, 0), finalize=True, titlebar_font='bold')
 show_the_image('streaming', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
 show_the_image('still', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
+spresense_not_found = connect_to_spresense()
 
-# Support for three ways to send out information:
-# print('Hello World')       #Print to Shell output
-# sg.Print('Hello World')    #Prints to a Debug Popup Window
-mprint('Hello World')  # Prints to this application's System Information Window
-abort_the_application = connect_to_spresense()
+window['-SW-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when Streaming Width Input gets focus
+window['-SH-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when Streaming Height Input gets focus
 
 while True:  # The Event Loop
     event, values = window.read()
-    print(event, values)
-    if abort_the_application:
+    # print(event, values)    # This print, for debug only
+    print('event:', event)    # This print, for debug only
+    if spresense_not_found:
         print('Spresense Comm Port not found')
         window.close()
-        window.refresh()
-        run = False
         break
-    elif event == sg.WIN_CLOSED or event == 'Exit':
+    if event == sg.WIN_CLOSED or event == 'Exit':
         ser.close()
         break
+    elif event == '-SW-GOT_FOCUS':
+        window['-STAT_BAR-'].update('Streaming Image Width Range: 96 - 2592 pixels for ISX012 image sensor')
+    elif event == '-SH-GOT_FOCUS':
+        window['-STAT_BAR-'].update('Streaming Image Height Range: 64 - 1944 pixels for ISX012 image sensor')
 
 
 window.close()
+
+
+# My NOTES.................................................................................................
+# Supports three "print" methods to send out information:
+# print('Hello World')       # Print to Shell output
+# sg.Print('Hello World')    # Prints to a PySimpleGUI Debug Popup Window
+# mprint('Hello World')      # Prints to this application's System Information Window, multiline element
