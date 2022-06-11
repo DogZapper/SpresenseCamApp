@@ -1,3 +1,10 @@
+# -------------------------------------------------
+# Spresense Camera Application - Python
+# Tested OK using:
+# Windows10
+# Python 3.9.0 (tags/v3.9.0:9cf6752, Oct  5 2020, 15:34:40) [MSC v.1927 64 bit (AMD64)] on win32
+
+# -------------------------------------------------
 import PySimpleGUI as sg
 from PIL import Image, ImageTk
 import serial
@@ -49,7 +56,7 @@ def connect_to_spresense():
     abort_app = True
     ports = serial.tools.list_ports.comports()
     for port, desc, hwid in sorted(ports):
-        if (hwid[12:21]) == '10C4:EA60':  # if vid pid match Spresense board then you found it
+        if (hwid[12:21]) == '10C4:EA60':  # if vid pid match, Spresense board found
             my_port = port.lower()
             mprint('Spresense found on', my_port)
             mprint('Initialization in progress...')
@@ -70,12 +77,61 @@ def connect_to_spresense():
         return abort_app  # returns False
 
 
+def handle_user_input_streaming_image_size(dimension):
+    global streaming_width
+    global streaming_height
+    if dimension == 'width':
+        try:
+            streaming_width = int(values['-STREAMING_WIDTH-'])
+        except ValueError:
+            streaming_width = 0
+        finally:
+            if int(streaming_width) < 96:
+                window['-STREAMING_WIDTH-'].update(streaming_width, text_color='red')
+            elif int(streaming_width) < 2592+1:
+                window['-STREAMING_WIDTH-'].update(streaming_width, text_color='black')
+            else:
+                window['-STREAMING_WIDTH-'].update(streaming_width, text_color='red')
+    else:  # must be height
+        try:
+            streaming_height = int(values['-STREAMING_HEIGHT-'])
+        except ValueError:
+            streaming_height = 0
+        finally:
+            if int(streaming_height) < 64:
+                window['-STREAMING_HEIGHT-'].update(streaming_height, text_color='red')
+            elif int(streaming_height) < 1944+1:
+                window['-STREAMING_HEIGHT-'].update(streaming_height, text_color='black')
+            else:
+                window['-STREAMING_HEIGHT-'].update(streaming_height, text_color='red')
+
+
+def calculate_jpeg_buffer_size(which_buffer):
+    global jpeg_buffer_size
+    if which_buffer == 'streaming':
+        jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / streaming_jpgbufsize_div)
+        window['-STREAMING_JPEG_BUFF_SIZE-'].update(jpeg_buffer_size)
+    # else:   # still image buffer
+    #     jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / jpgbufsize_divisor)
+    #     window['-STREAMING_JPEG_BUFF_SIZE-'].update(jpeg_buffer_size)
+
+
 # -------------------------------------------------
 # MAIN
 # Start up code and main routine starts here
+# jpeg_buffer_size = (img_width * img_height * bytes_per_pixel) / jpgbufsize_divisor
+# bytes_per_pixel = 2
 # -------------------------------------------------
 sg.theme('DarkGreen3')
+# Some GLOBALS-------------------------------------
 my_bg_color = sg.theme_input_background_color()
+streaming_width = 96
+streaming_height = 64
+streaming_jpgbufsize_div = 7
+bytes_per_pixel = 2
+jpeg_buffers = 1
+
+jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / streaming_jpgbufsize_div)
 
 my_tab1_layout = [
     [sg.Frame('Streaming', [
@@ -83,13 +139,25 @@ my_tab1_layout = [
          sg.Combo(['5 FPS', '6 FPS', '7.5 FPS', '15 FPS', '30 FPS', '60 FPS', '120 FPS'], size=(8, 1),
                   default_value='5 FPS', readonly=True, enable_events=True, key='-PIX_FPS-')],
         [sg.Text('Image size in pixels:')],
-        [sg.T('Width:', pad=((12, 5), (0, 0))), sg.Input(size=5, enable_events=True, key='-SW-'), sg.T('X'),
-         sg.T('Height:'), sg.Input(size=5, enable_events=True, key='-SH-')],
+        [sg.T('Width:', pad=((12, 5), (0, 0))), sg.Input(streaming_width, s=5, enable_events=True,
+                                                         key='-STREAMING_WIDTH-'),
+         sg.T('X'),
+         sg.T('Height:'), sg.Input(streaming_height, size=5, enable_events=True, key='-STREAMING_HEIGHT-')],
         [sg.T('Format:'), sg.Combo(['RGB565', 'YUV422', 'JPG', 'GRAY', 'NONE'], s=(7, 1), default_value='JPG',
                                    readonly=True, key='-PIX_FMT-')],
-        [sg.T('Div'), sg.T('Buffer Size'), sg.T('Buffers')]
-    ])]
-]
+        [sg.Frame('JPEG Settings', [
+            [sg.T('Div:'), sg.Combo(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'],
+                                    s=(3, 1), default_value=str(streaming_jpgbufsize_div), readonly=True,
+                                    enable_events=True, key='-STREAMING_JPEG_SIZE_DIV-'),
+             sg.T('Buffers:'), sg.Combo(['1', '2'], size=(3, 1), default_value=str(jpeg_buffers), readonly=True,
+                                        key='-STREAMING_JPEG_SIZE_DIV-')],
+            [sg.T('Buffer Size (bytes):'), sg.Text(jpeg_buffer_size, s=(8, 1), expand_x=True, justification='center',
+                                                   text_color='black', background_color=my_bg_color,
+                                                   key='-STREAMING_JPEG_BUFF_SIZE-')]])],
+        [sg.Text('Streaming Filename:')], [sg.Input('my_streaming.jpg', size=(32, 1), disabled=True,
+                                                    key='-STREAM_FILENAME-')]])]]
+
+
 my_tab2_layout = []
 my_tab3_layout = []
 my_tabs_group_layout = [
@@ -106,12 +174,12 @@ left_column = [
 ]
 
 middle_column = [
-    [sg.Text('Streaming Image Buffer', pad=(100, 0))],
+    [sg.Text('Streaming Frame - Fixed 250 x 200 pixels', pad=(100, 0))],
     [sg.Image(size=(250, 200), pad=((100, 0), (0, 10)), key='-STREAMING_IMAGE-'),
      sg.Text('Actual:'),
      sg.Text(size=(5, 1), text_color='black', background_color=my_bg_color, key='-FPS-'),
      sg.Text('FPS')],
-    [sg.Text('Still Image Buffer', pad=(0, 0))],
+    [sg.Text('Still Image Frame - Fixed 500 x 400 pixels', pad=(0, 0))],
     [sg.Image(size=(500, 400), pad=((0, 0), (0, 0)), key='-STILL_IMAGE-')],
     [sg.Text('Working images above are fixed sizes.', justification='center', expand_x=True)],
     [sg.Text('To view full resolution images, see filenames to the right.', justification='center', expand_x=True)]
@@ -130,7 +198,7 @@ layout = [
      sg.VerticalSeparator(),
      sg.Column(right_column),
      sg.VerticalSeparator()],
-    [sg.StatusBar('Status Bar...', size=80, key='-STAT_BAR-')]
+    [sg.StatusBar('Status Bar: ...', size=80, key='-STAT_BAR-')]
 ]
 
 window = sg.Window('Spresense Camera App', layout, margins=(0, 0), finalize=True, titlebar_font='bold')
@@ -138,13 +206,13 @@ show_the_image('streaming', 'Spresense_Splash3.JPG', resize=True)  # Show the st
 show_the_image('still', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
 spresense_not_found = connect_to_spresense()
 
-window['-SW-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when Streaming Width Input gets focus
-window['-SH-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when Streaming Height Input gets focus
+window['-STREAMING_WIDTH-'].bind('<FocusIn>', 'GOT_FOCUS')   # Used to provide an event when input field gets focus
+window['-STREAMING_HEIGHT-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when input field gets focus
 
 while True:  # The Event Loop
     event, values = window.read()
-    # print(event, values)    # This print, for debug only
-    print('event:', event)    # This print, for debug only
+    print('event:', event)        # This print, for debug only
+    # print('values:', values)    # This print, for debug only
     if spresense_not_found:
         print('Spresense Comm Port not found')
         window.close()
@@ -152,10 +220,19 @@ while True:  # The Event Loop
     if event == sg.WIN_CLOSED or event == 'Exit':
         ser.close()
         break
-    elif event == '-SW-GOT_FOCUS':
-        window['-STAT_BAR-'].update('Streaming Image Width Range: 96 - 2592 pixels for ISX012 image sensor')
-    elif event == '-SH-GOT_FOCUS':
-        window['-STAT_BAR-'].update('Streaming Image Height Range: 64 - 1944 pixels for ISX012 image sensor')
+    elif event == '-STREAMING_WIDTH-GOT_FOCUS':
+        window['-STAT_BAR-'].update('Status Bar: Streaming Image Width Range: 96-2592 pixels for ISX012 image sensor')
+    elif event == '-STREAMING_HEIGHT-GOT_FOCUS':
+        window['-STAT_BAR-'].update('Status Bar: Streaming Image Height Range: 64-1944 pixels for ISX012 image sensor')
+    elif event == '-STREAMING_WIDTH-':
+        handle_user_input_streaming_image_size('width')
+        calculate_jpeg_buffer_size('streaming')
+    elif event == '-STREAMING_HEIGHT-':
+        handle_user_input_streaming_image_size('height')
+        calculate_jpeg_buffer_size('streaming')
+    elif event == '-STREAMING_JPEG_SIZE_DIV-':
+        streaming_jpgbufsize_div = int(values['-STREAMING_JPEG_SIZE_DIV-'])
+        calculate_jpeg_buffer_size('streaming')
 
 
 window.close()
