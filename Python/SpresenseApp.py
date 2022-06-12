@@ -10,6 +10,7 @@ from PIL import Image, ImageTk
 import serial
 from serial.tools import list_ports
 import time
+import threading
 
 
 # -------------------------------------------------
@@ -21,10 +22,10 @@ import time
 # This routine will resize your image to match frame size, if you ask
 def show_the_image(location, image_file, resize):
     if location == 'streaming':
-        my_ui_image_frame_size = (250, 200)
+        my_ui_image_frame_size = streaming_ui_image_frame_size
         image_to_update = '-STREAMING_IMAGE-'
     else:
-        my_ui_image_frame_size = (500, 400)
+        my_ui_image_frame_size = still_ui_image_frame_size
         image_to_update = '-STILL_IMAGE-'
 
     im = Image.open(image_file, formats=None)
@@ -117,6 +118,53 @@ def calculate_jpeg_buffer_size(which_buffer):
 
 
 # -------------------------------------------------
+# Spresense streaming image mode
+# -------------------------------------------------
+def camera_steaming_mode(window, my_bg_color):
+    send_spresense_command('cam_stream_start\n', 5, 'enabled')
+    spresense_camera_data = 0
+
+    mprint('--- Image Size ---')
+    while int(values['-STREAMING_ACTIVE-']):   # The streaming active check_box
+        start = time.time()  # start time for FPS calculation
+        image_size = int(ser.readline())  # get the size (in bytes) of the image
+        mprint(image_size)
+        if image_size == 0:
+            mprint('jpeg buffer overflow')
+        if image_size > 0:
+            spresense_camera_data = ser.read(size=image_size)  # reads bytes from Spresense
+            image_tk = ImageTk.PhotoImage(data=spresense_camera_data)  # read raw array data and creates an imgtk
+            im_pil = ImageTk.getimage(image_tk)  # convert it to PIL image so we can resize it
+            resized_pil = im_pil.resize(streaming_ui_image_frame_size)  # resize it to fit streaming frame size
+            image = ImageTk.PhotoImage(image=resized_pil)  # convert it back to TK_image
+
+            window['-STREAMING_IMAGE-'].update(data=image)
+            endt = time.time()
+
+            fpsec = 1.0 / (endt - start)
+            window['-FPS-'].update('%.3f' % fpsec)
+
+    send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
+    ser.read_all()  # use this to flush the PC comm port buffer
+    f = open('my_streaming.jpg', 'wb')  # save this last frame into jpg streaming file
+    f.write(spresense_camera_data)
+    f.close()
+
+
+# -------------------------------------------------
+# PC to Spresense command handler
+# -------------------------------------------------
+def send_spresense_command(command, response_lines, print_mode):
+
+    spresense_command_response_data = ""
+
+    ser.write(command.encode())
+    for x in range(response_lines):
+        new_response = ser.readline().decode('ascii')
+        spresense_command_response_data = spresense_command_response_data + new_response
+
+
+# -------------------------------------------------
 # MAIN
 # Start up code and main routine starts here
 # jpeg_buffer_size = (img_width * img_height * bytes_per_pixel) / jpgbufsize_divisor
@@ -130,12 +178,14 @@ streaming_height = 64
 streaming_jpgbufsize_div = 7
 bytes_per_pixel = 2
 jpeg_buffers = 1
+streaming_ui_image_frame_size = (250, 200)
+still_ui_image_frame_size = (500, 400)
 
 jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / streaming_jpgbufsize_div)
 
 my_tab1_layout = [
     [sg.Frame('Streaming', [
-        [sg.Checkbox('Active'), sg.T('Frame Rate:'),
+        [sg.Checkbox('Active', enable_events = True, key='-STREAMING_ACTIVE-'), sg.T('Frame Rate:'),
          sg.Combo(['5 FPS', '6 FPS', '7.5 FPS', '15 FPS', '30 FPS', '60 FPS', '120 FPS'], size=(8, 1),
                   default_value='5 FPS', readonly=True, enable_events=True, key='-PIX_FPS-')],
         [sg.Text('Image size in pixels:')],
@@ -174,13 +224,13 @@ left_column = [
 ]
 
 middle_column = [
-    [sg.Text('Streaming Frame - Fixed 250 x 200 pixels', pad=(100, 0))],
-    [sg.Image(size=(250, 200), pad=((100, 0), (0, 10)), key='-STREAMING_IMAGE-'),
+    [sg.Text('Streaming Frame - Fixed pixels:' + str(streaming_ui_image_frame_size), pad=(100, 0))],
+    [sg.Image(size=streaming_ui_image_frame_size, pad=((100, 0), (0, 10)), key='-STREAMING_IMAGE-'),
      sg.Text('Actual:'),
      sg.Text(size=(5, 1), text_color='black', background_color=my_bg_color, key='-FPS-'),
      sg.Text('FPS')],
-    [sg.Text('Still Image Frame - Fixed 500 x 400 pixels', pad=(0, 0))],
-    [sg.Image(size=(500, 400), pad=((0, 0), (0, 0)), key='-STILL_IMAGE-')],
+    [sg.Text('Still Image Frame - Fixed pixels:' + str(still_ui_image_frame_size), pad=(0, 0))],
+    [sg.Image(size=still_ui_image_frame_size, pad=((0, 0), (0, 0)), key='-STILL_IMAGE-')],
     [sg.Text('Working images above are fixed sizes.', justification='center', expand_x=True)],
     [sg.Text('To view full resolution images, see filenames to the right.', justification='center', expand_x=True)]
 ]
@@ -219,6 +269,7 @@ while True:  # The Event Loop
         break
     if event == sg.WIN_CLOSED or event == 'Exit':
         ser.close()
+        send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
         break
     elif event == '-STREAMING_WIDTH-GOT_FOCUS':
         window['-STAT_BAR-'].update('Status Bar: Streaming Image Width Range: 96-2592 pixels for ISX012 image sensor')
@@ -233,6 +284,11 @@ while True:  # The Event Loop
     elif event == '-STREAMING_JPEG_SIZE_DIV-':
         streaming_jpgbufsize_div = int(values['-STREAMING_JPEG_SIZE_DIV-'])
         calculate_jpeg_buffer_size('streaming')
+    elif event == '-STREAMING_ACTIVE-':
+        print('CheckBox:', values['-STREAMING_ACTIVE-'])
+        if values['-STREAMING_ACTIVE-']:
+            threading.Thread(target=camera_steaming_mode, args=(window, my_bg_color)).start()
+
 
 
 window.close()
