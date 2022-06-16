@@ -123,12 +123,12 @@ def calculate_jpeg_buffer_size(which_buffer):
 # -------------------------------------------------
 # Spresense streaming image mode
 # -------------------------------------------------
-def camera_steaming_mode(my_window, ):
+def camera_streaming_mode(window):
     send_spresense_command('cam_stream_start\n', 5, 'enabled')
     spresense_camera_data = 0
 
     mprint('--- Image Size ---')
-    while int(values['-STREAMING_ACTIVE-']):  # The streaming active check_box
+    while values['-STREAMING_CHECKBOX-']:  # The streaming active check_box
         start = time.time()  # start time for FPS calculation
         image_size = int(ser.readline())  # get the size (in bytes) of the image
         mprint(image_size)
@@ -140,18 +140,14 @@ def camera_steaming_mode(my_window, ):
             im_pil = ImageTk.getimage(image_tk)  # convert it to PIL image so we can resize it
             resized_pil = im_pil.resize(streaming_ui_image_frame_size)  # resize it to fit streaming frame size
             image = ImageTk.PhotoImage(image=resized_pil)  # convert it back to TK_image
-
-            my_window['-STREAMING_IMAGE-'].update(data=image)
+            window['-STREAMING_IMAGE-'].update(data=image)
             endt = time.time()
-
             fpsec = 1.0 / (endt - start)
-            my_window['-FPS-'].update('%.3f' % fpsec)
+            window['-FPS-'].update('%.3f' % fpsec)
+        print('CheckBox:', values['-STREAMING_CHECKBOX-'])
 
-    send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming
-    ser.read_all()  # use this to flush the PC comm port buffer
-    f = open(streaming_filename, 'wb')  # save this last frame into jpg streaming file
-    f.write(spresense_camera_data)
-    f.close()
+    window.write_event_value('-THREAD-', 'done')
+    print('CheckBox:', values['-STREAMING_CHECKBOX-'])
 
 
 # -------------------------------------------------
@@ -168,28 +164,16 @@ def send_spresense_command(command, response_lines, print_mode):
 
 
 def handle_streaming_active_checkbox():
-    global threading_not_active
-    # time.sleep(1)  # slow down the user, prevent clicking checkbox too fast here...
-    if values['-STREAMING_ACTIVE-']:
+    time.sleep(1)  # slow down the user, prevent clicking checkbox too fast here...
+    if values['-STREAMING_CHECKBOX-']:  # The checkbox is active, CHECKED
         # window['-STREAMING_FPS-'].update(disabled=True)
         # window['-STREAMING_WIDTH-'].update(disabled=True, background_color='gray')
         # window['-STREAMING_HEIGHT-'].update(disabled=True)
         # window['-STREAMING_PIX_FMT-'].update(disabled=True)
         # window['-STREAMING_JPEG_SIZE_DIV-'].update(disabled=True)
         # window['-STREAMING_JPEG_BUFFERS_COUNT-'].update(disabled=True)
-
-        # ONLY DO THIS ONCE...
-        if threading_not_active:
-            threading.Thread(target=camera_steaming_mode, args=(window, ), daemon=True).start()
-            threading_not_active = False
-    else:
-        send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming
-        # window['-STREAMING_FPS-'].update(disabled=False)
-        # window['-STREAMING_WIDTH-'].update(disabled=False, background_color=my_bg_color)
-        # window['-STREAMING_HEIGHT-'].update(disabled=False)
-        # window['-STREAMING_PIX_FMT-'].update(disabled=False)
-        # window['-STREAMING_JPEG_SIZE_DIV-'].update(disabled=False)
-        # window['-STREAMING_JPEG_BUFFERS_COUNT-'].update(disabled=False)
+        threading.Thread(target=camera_steaming_mode, args=(window, ), daemon=True).start()
+        threading_active = True
 
 
 # -------------------------------------------------
@@ -204,14 +188,13 @@ my_bg_color = sg.theme_input_background_color()
 bytes_per_pixel = 2
 streaming_ui_image_frame_size = (250, 200)
 still_ui_image_frame_size = (500, 400)
-threading_not_active = True
 
 current_directory = os.getcwd() + '\\'
 python_settings_filename = 'Spresense.json'
 sg.user_settings_filename(filename=current_directory + python_settings_filename)  # Python settings file
 
 if not sg.user_settings_file_exists():
-    sg.user_settings_set_entry('-STREAMING_ACTIVE-', False)
+    sg.user_settings_set_entry('-STREAMING_CHECKBOX-', False)
     sg.user_settings_set_entry('-STREAMING_FPS-', '5 FPS')
     sg.user_settings_set_entry('-STREAMING_WIDTH-', 96)
     sg.user_settings_set_entry('-STREAMING_HEIGHT-', 64)
@@ -219,7 +202,7 @@ if not sg.user_settings_file_exists():
     sg.user_settings_set_entry('-STREAMING_JPEG_BUFFERS_COUNT-', 1)
     sg.user_settings_set_entry('-STREAMING_FILENAME-', 'my_streaming.jpg')  # Streaming image file name
 
-active_checkbox = sg.user_settings_get_entry('-STREAMING_ACTIVE-')
+active_checkbox = sg.user_settings_get_entry('-STREAMING_CHECKBOX-')
 frame_rate = sg.user_settings_get_entry('-STREAMING_FPS-')
 streaming_width = sg.user_settings_get_entry('-STREAMING_WIDTH-')
 streaming_height = sg.user_settings_get_entry('-STREAMING_HEIGHT-')
@@ -231,7 +214,7 @@ jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / 
 
 my_tab1_layout = [
     [sg.Frame('Streaming', [
-        [sg.Checkbox('Active', default=active_checkbox, enable_events=True, key='-STREAMING_ACTIVE-'),
+        [sg.Checkbox('Active', default=active_checkbox, enable_events=True, key='-STREAMING_CHECKBOX-'),
          sg.Text('Frame Rate:'),
          sg.Combo(['5 FPS', '6 FPS', '7.5 FPS', '15 FPS', '30 FPS', '60 FPS', '120 FPS'], size=(8, 1),
                   default_value=frame_rate, readonly=True, enable_events=True, key='-STREAMING_FPS-')],
@@ -253,7 +236,7 @@ my_tab1_layout = [
                                                    key='-STREAMING_JPEG_BUFF_SIZE-')]])],
         [sg.Text('Streaming Filename:')], [sg.Input(streaming_filename, size=(32, 1), disabled=True,
                                                     key='-STREAMING_FILENAME-')]])],
-    [sg.Button('Get Versions', key='-VERSIONS-')],
+    [sg.Button('Get Versions', key='-VERSIONS-')]
 ]
 
 
@@ -300,7 +283,8 @@ layout = [
     [sg.StatusBar('Status Bar: ...', size=80, key='-STAT_BAR-')]
 ]
 
-window = sg.Window('Spresense Camera App', layout, margins=(0, 0), finalize=True, titlebar_font='bold')
+window = sg.Window('Spresense Camera App', layout, margins=(0, 0), finalize=True, titlebar_font='bold',
+                   enable_close_attempted_event=True)
 show_the_image('streaming', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
 show_the_image('still', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
 spresense_not_found = connect_to_spresense()
@@ -308,17 +292,21 @@ spresense_not_found = connect_to_spresense()
 window['-STREAMING_WIDTH-'].bind('<FocusIn>', 'GOT_FOCUS')   # Used to provide an event when input field gets focus
 window['-STREAMING_HEIGHT-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when input field gets focus
 
+
 while True:  # The Event Loop
     event, values = window.read()
     print('event:', event)        # This print, for debug only
     # print('values:', values)    # This print, for debug only
+    # if not streaming_video_thread_active:  # only do this once
+    #    threading.Thread(target=camera_steaming_mode, args=(window,), daemon=True).start()
+    #    streaming_video_thread_active = True
     if spresense_not_found:
         print('Spresense Comm Port not found')
         window.close()
         break
-    if event == sg.WIN_CLOSED or event == 'Exit':
-        window['-STREAMING_ACTIVE-'].update(False)
-        time.sleep(2)
+    if event == sg.WINDOW_CLOSE_ATTEMPTED_EVENT or event == 'Exit':
+        window['-STREAMING_CHECKBOX-'].update(False)
+        # time.sleep(2)
         send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
         ser.close()
         break
@@ -335,8 +323,15 @@ while True:  # The Event Loop
     elif event == '-STREAMING_JPEG_SIZE_DIV-':
         streaming_jpgbufsize_div = values['-STREAMING_JPEG_SIZE_DIV-']
         calculate_jpeg_buffer_size('streaming')
-    elif event == '-STREAMING_ACTIVE-':
-        handle_streaming_active_checkbox()
+    elif event == '-STREAMING_CHECKBOX-':
+        print('A:', values['-STREAMING_CHECKBOX-'])
+        print('B:', int(values['-STREAMING_CHECKBOX-']))
+        if values['-STREAMING_CHECKBOX-']:
+            threading.Thread(target=camera_streaming_mode, args=(window,), daemon=True).start()
+    elif event == '-THREAD-':
+        mprint('Streaming video stopped')
+        time.sleep(0.100)
+        send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
     elif event == '-VERSIONS-':
         mprint('---------------------------------------')
         mprint(sg.get_versions())
