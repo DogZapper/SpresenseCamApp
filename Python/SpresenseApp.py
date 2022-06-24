@@ -10,8 +10,8 @@ from PIL import Image, ImageTk
 import serial
 from serial.tools import list_ports
 import time
-import threading
 import os
+
 
 # =======================================================================
 #  ____  _   _ ____  ____   ___  _   _ _____ ___ _   _ _____ ____
@@ -74,7 +74,7 @@ def connect_to_spresense():
         return abort_app  # returns True
     else:
         ser = serial.Serial(my_port, 1200000, timeout=7)
-        time.sleep(2.5)  # Spresense reboots when the com port shows up (and it is slow)
+        time.sleep(3.2)  # Spresense reboots when the com port shows up (and it is slow)
         # get_camera_settings()                                   # Get Spresense default camera parameters
         # parameter_from_spresense()
         mprint('Initialization Complete...')
@@ -127,7 +127,7 @@ def calculate_jpeg_buffer_size(which_buffer):
 # -------------------------------------------------
 def camera_streaming_mode(my_window):
     global streaming_enabled
-    send_spresense_command('cam_stream_start\n', 5, 'enabled')
+    send_spresense_command('cam_stream_start\n', 5)
 
     mprint('--- Image Size ---')
     while streaming_enabled:
@@ -148,17 +148,94 @@ def camera_streaming_mode(my_window):
             my_window['-FPS-'].update('%.3f' % fpsec)
 
 
-# -------------------------------------------------
+# --------------------------------------------------------------------------------
 # PC to Spresense command handler
-# -------------------------------------------------
-def send_spresense_command(command, response_lines, print_mode):
-
+# Spresense response is stored in global varible: spresense_command_response_data
+# --------------------------------------------------------------------------------
+def send_spresense_command(command, response_lines):
+    global spresense_command_response_data
     spresense_command_response_data = ""
 
     ser.write(command.encode())
     for x in range(response_lines):
         new_response = ser.readline().decode('ascii')
         spresense_command_response_data = spresense_command_response_data + new_response
+
+
+def get_camera_settings():
+    global spresense_command_response_data
+    send_spresense_command('cam_info\n', 14)
+    mprint()
+    mprint(spresense_command_response_data)
+
+
+# ---------------------------------------------------
+# System parameter from Spresense
+# use command P-
+# Pulls current parameter values from Spresense.ini
+# and sends them to Spresense hardware
+# ---------------------------------------------------
+def parameters_from_spresense():
+    # ser.write("P-\n").encode()                  # Get Spresense Parameters
+    send_spresense_command('P-\n', 21)
+    mprint()
+    mprint(spresense_command_response_data)
+
+
+def parameters_to_spresense():
+    # mprint(sg.user_settings_get_entry('-STREAMING_FPS-'))
+    # mprint(sg.user_settings_get_entry('-STREAMING_WIDTH-'))
+    # mprint(sg.user_settings_get_entry('-STREAMING_HEIGHT-'))
+    # mprint(sg.user_settings_get_entry('-STREAMING_PIX_FMT-'))
+    # mprint(sg.user_settings_get_entry('-STREAMING_JPEG_SIZE_DIV-'))
+    # mprint(sg.user_settings_get_entry('-STREAMING_JPEG_BUFFERS_COUNT-'))
+    # mprint(sg.user_settings_get_entry('-STREAMING_FILENAME-'))
+    # mprint(settings)
+    # mprint(settings.items())
+    # mprint(settings.keys())
+    # mprint(settings.values())
+    # f = open("Spresense.ini", "r")  # read in the ini file
+    # ini_file_data = f.read()
+    # start = [17,18,22,29,19,18,20,13,14,20,25,16,15,14,12,14,20,20,22,20]
+    # # Tells Spresense the ini parameter data is coming next
+    # ser.write( ("P+\n").encode() )
+    settings = sg.user_settings()
+    ser.write(('P+'+'\n').encode())
+    mprint()
+    new_response = ser.readline().decode('ascii')
+    mprint(new_response)
+    time.sleep(1)
+    ser.write((settings['-STREAMING_FPS-'] + '\n').encode())
+    ser.write((settings['-STREAMING_WIDTH-'] + '\n').encode())
+    ser.write((settings['-STREAMING_HEIGHT-'] + '\n').encode())
+    ser.write((settings['-STREAMING_PIX_FMT-'] + '\n').encode())
+    ser.write((settings['-STREAMING_JPEG_SIZE_DIV-'] + '\n').encode())
+    ser.write((settings['-STREAMING_JPEG_BUFFERS_COUNT-'] + '\n').encode())
+    ser.write((settings['-STREAMING_FILENAME-'] + '\n').encode())
+    ser.write(("lizard" + '\n').encode())
+    ser.write(("bird" + '\n').encode())
+    ser.write(("fish" + '\n').encode())
+    ser.write(("bug" + '\n').encode())
+    ser.write(("insect" + '\n').encode())
+    ser.write(("crab" + '\n').encode())
+    ser.write(("toad" + '\n').encode())
+    ser.write(("bear" + '\n').encode())
+    ser.write(("coyote" + '\n').encode())
+    ser.write(("merrkat" + '\n').encode())
+    ser.write(("ant" + '\n').encode())
+    ser.write(("worm" + '\n').encode())
+    ser.write(("praying mantis4" + '\n').encode())
+    new_response = ser.readline().decode('ascii')
+    mprint(new_response)
+    # for x in range(1):
+    #     print(ser.readline().decode('ascii'), end='')
+    #     time.sleep(1)
+    # for line in range(len(start)):
+    #     pram = ini_file_data.splitlines()[line]
+    #     pram = pram[start[line]:]
+    #     update_the_user_interface(line+1, pram)      # update the UI for every parameter sent to Spresence
+    #     print(pram)
+    #     ser.write((pram + "\n").encode())           # Send the parameter to spresense
 
 
 # ==========================================================================================================
@@ -180,32 +257,30 @@ bytes_per_pixel = 2
 streaming_ui_image_frame_size = (250, 200)
 still_ui_image_frame_size = (500, 400)
 streaming_enabled = False
-current_directory = os.getcwd() + '\\'
-python_settings_filename = 'Spresense.json'
-sg.user_settings_filename(filename=current_directory + python_settings_filename)  # Python settings file
+sg.user_settings_filename(path='.')   # user_settings_filename = "This_filename.json" in the same directory
+spresense_command_response_data = ""
 
 if not sg.user_settings_file_exists():
-    sg.user_settings_set_entry('-STREAMING_CHECKBOX-', False)
     sg.user_settings_set_entry('-STREAMING_FPS-', '5 FPS')
-    sg.user_settings_set_entry('-STREAMING_WIDTH-', 96)
-    sg.user_settings_set_entry('-STREAMING_HEIGHT-', 64)
-    sg.user_settings_set_entry('-STREAMING_JPEG_SIZE_DIV-', 7)
-    sg.user_settings_set_entry('-STREAMING_JPEG_BUFFERS_COUNT-', 1)
+    sg.user_settings_set_entry('-STREAMING_WIDTH-', '96')
+    sg.user_settings_set_entry('-STREAMING_HEIGHT-', '64')
+    sg.user_settings_set_entry('-STREAMING_PIX_FMT-', 'JPG')
+    sg.user_settings_set_entry('-STREAMING_JPEG_SIZE_DIV-', '7')
+    sg.user_settings_set_entry('-STREAMING_JPEG_BUFFERS_COUNT-', '1')
     sg.user_settings_set_entry('-STREAMING_FILENAME-', 'my_streaming.jpg')  # Streaming image file name
 
-active_checkbox = sg.user_settings_get_entry('-STREAMING_CHECKBOX-')
 frame_rate = sg.user_settings_get_entry('-STREAMING_FPS-')
-streaming_width = sg.user_settings_get_entry('-STREAMING_WIDTH-')
-streaming_height = sg.user_settings_get_entry('-STREAMING_HEIGHT-')
-streaming_jpgbufsize_div = sg.user_settings_get_entry('-STREAMING_JPEG_SIZE_DIV-')
-streaming_buff_cnt = sg.user_settings_get_entry('-STREAMING_JPEG_BUFFERS_COUNT-')
+streaming_width = int(sg.user_settings_get_entry('-STREAMING_WIDTH-'))
+streaming_height = int(sg.user_settings_get_entry('-STREAMING_HEIGHT-'))
+streaming_jpgbufsize_div = int(sg.user_settings_get_entry('-STREAMING_JPEG_SIZE_DIV-'))
+streaming_buff_cnt = int(sg.user_settings_get_entry('-STREAMING_JPEG_BUFFERS_COUNT-'))
 streaming_filename = sg.user_settings_get_entry('-STREAMING_FILENAME-')
 
-jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / streaming_jpgbufsize_div)
+jpeg_buffer_size = (streaming_width * streaming_height * bytes_per_pixel) / int(streaming_jpgbufsize_div)
 
 my_tab1_layout = [
     [sg.Frame('Streaming', [
-        [sg.Checkbox('Active', default=active_checkbox, enable_events=True, key='-STREAMING_CHECKBOX-'),
+        [sg.Checkbox('Active', default=False, enable_events=True, key='-STREAMING_CHECKBOX-'),
          sg.Text('Frame Rate:'),
          sg.Combo(['5 FPS', '6 FPS', '7.5 FPS', '15 FPS', '30 FPS', '60 FPS', '120 FPS'], size=(8, 1),
                   default_value=frame_rate, readonly=True, enable_events=True, key='-STREAMING_FPS-')],
@@ -227,16 +302,19 @@ my_tab1_layout = [
                                                    key='-STREAMING_JPEG_BUFF_SIZE-')]])],
         [sg.Text('Streaming Filename:')], [sg.Input(streaming_filename, size=(32, 1), disabled=True,
                                                     key='-STREAMING_FILENAME-')]])],
-    [sg.Button('Get Versions', key='-VERSIONS-')]
+    [sg.Button('Send settings to Spresence camera', expand_x=True, key='-UPDATE_STREAMING_SETTINGS-')],
+    [sg.Button('Get array data from Spresence', expand_x=True, key='-GET_SPRESENSE_ARRAY_DATA-')]
 ]
 
 
 my_tab2_layout = []
-my_tab3_layout = []
+my_tab3_layout = [
+    [sg.Button('Get Versions', key='-VERSIONS-')]
+]
 my_tabs_group_layout = [
     [sg.Tab('Camera', my_tab1_layout, key='-TAB1-'),
-     sg.Tab('Debug1', my_tab2_layout, key='-TAB2-'),
-     sg.Tab('Debug2', my_tab3_layout, key='-TAB3-')]
+     sg.Tab('Debug', my_tab2_layout, key='-TAB2-'),
+     sg.Tab('Misc', my_tab3_layout, key='-TAB3-')]
 ]
 
 left_column = [
@@ -287,8 +365,8 @@ window = sg.Window('Spresense Camera App', layout, margins=(0, 0), finalize=True
 show_the_image('streaming', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
 show_the_image('still', 'Spresense_Splash3.JPG', resize=True)  # Show the start up image
 spresense_not_found = connect_to_spresense()
-window['-STREAMING_WIDTH-'].bind('<FocusIn>', 'GOT_FOCUS')   # Used to provide an event when input field gets focus
-window['-STREAMING_HEIGHT-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to provide an event when input field gets focus
+window['-STREAMING_WIDTH-'].bind('<FocusIn>', 'GOT_FOCUS')   # Used to generate an event when input field gets focus
+window['-STREAMING_HEIGHT-'].bind('<FocusIn>', 'GOT_FOCUS')  # Used to generate an event when input field gets focus
 
 # -------------------------------------------------------
 #  _____                 _     _
@@ -311,8 +389,7 @@ while True:  # The Event Loop
         break
     if event == sg.WINDOW_CLOSE_ATTEMPTED_EVENT or event == 'Exit':
         window['-STREAMING_CHECKBOX-'].update(False)
-        # time.sleep(2)
-        send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
+        send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
         ser.close()
         break
     elif event == '-STREAMING_WIDTH-GOT_FOCUS':
@@ -336,18 +413,22 @@ while True:  # The Event Loop
         else:
             streaming_enabled = False
             print('Streaming NOT active...')
-            # send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
+            # send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
             # streaming_enabled = values['-STREAMING_CHECKBOX-']
             # window.start_thread(lambda: my_function_with_parms(10), '-FUNCTION COMPLETED-')
-            # send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
+            # send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
     elif event == '-THREAD-':
         mprint('Streaming video stopped')
-        send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
+        send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
     elif event == '-VERSIONS-':
         mprint('---------------------------------------')
         mprint(sg.get_versions())
         mprint('---------------------------------------')
-
+    elif event == '-UPDATE_STREAMING_SETTINGS-':
+        parameters_to_spresense()
+        get_camera_settings()
+    elif event == '-GET_SPRESENSE_ARRAY_DATA-':
+        parameters_from_spresense()
 
 window.close()
 
@@ -357,6 +438,5 @@ window.close()
 # print('Hello World')       # Print to Shell output
 # sg.Print('Hello World')    # Prints to a PySimpleGUI Debug Popup Window
 # mprint('Hello World')      # Prints to this application's System Information Window, multiline element
-
-send_spresense_command('cam_stream_stop\n', 0, 'silent')  # tell the Spresense to stop streaming 2nd
-print('CheckBox:', values['-STREAMING_CHECKBOX-'])
+# send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
+# print('CheckBox:', values['-STREAMING_CHECKBOX-'])

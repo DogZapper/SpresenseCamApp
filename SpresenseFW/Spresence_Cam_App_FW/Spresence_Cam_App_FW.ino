@@ -23,8 +23,8 @@ bool True  = 1;
 int led_delay = 50;                //used to scan Spresence row of leds (to monitor activity)
 
 char camera_parameters[20][30];     // Character GLOBAL buffer to hold each of the 20 Spresense parameters, with max size 30 characters for each parameters
-char test_array[20][30] = { {"1. dog"},{"2. cat"},{"3. frog"},{"4. tadpole"},{"5. tiger"},{"6. zebra"},{"7. mutt"},{"8. lizard"},{"9. bird"},{"10. fish"}, 
-                            {"11. bug"},{"12. insect"},{"13. crab"},{"14. toad"},{"15. bear"},{"16. coyote"},{"17. merrkat"},{"18. ant"},{"19. worm"},{"20. praying mantis"} };
+char test_array[20][30] = { {"dog"},{"cat"},{"frog"},{"tadpole"},{"tiger"},{"zebra"},{"mutt"},{"lizard"},{"bird"},{"fish"}, 
+                            {"bug"},{"insect"},{"crab"},{"toad"},{"bear"},{"coyote"},{"merrkat"},{"ant"},{"worm"},{"praying mantis"} };
 
 //======GLOBAL CAMERA SYTEM SETTING VARIABLES============================================================================
 //STILL CAMERA SHOT MODE GLOBAL CAMERA VARIABLES
@@ -195,8 +195,9 @@ void handleCommand()
         else if(!strcmp(inbuffer,"P+"))
         {
             //camera parameters are coming in from the Python application
-            printf("--- Parameters send from Host PC ---\n");          
+            printf("--- Receiving parameters from Host PC ---\n");          
             handle_the_incoming_parameters();
+            printf("Done...\n");    
         }
 
         else if(!strcmp(inbuffer,"P-"))
@@ -281,18 +282,6 @@ void handle_the_incoming_parameters()
               *in_ptr++ = incomingCharacter;                  // incoming characters go into a line buffer
           }
       }
-
-      //THIS WORKS...
-      //strcpy(&test_array[0][3],"hello");                 // put something in the parameter buffer
-      
-      //THIS WORKS...
-      // test_array[0][3] = 'h';                           // "H" put something in the parameter buffer
-      // test_array[0][1] = 'o';                           // put something in the parameter buffer
-      // test_array[0][2] = 'g';                           // put something in the parameter buffer
-      // test_array[0][3] = 0x0a;                          // put something in the parameter buffer
-      // test_array[0][4] = 0;                             // put something in the parameter buffer
-
-      //x++;                                                 // count the lines processed
   } 
   in_ptr = inbuffer;                    //initialize buffer pointer
   command_available = False;
@@ -410,16 +399,50 @@ void camera_check_for_errors(CamErr error)
     }
 }
 
+
+
 //------------------------------------------------------
-// Get Camera global settings and send to PC
+// convert enums to something meaningful
 //------------------------------------------------------
-void get_camera_info()
+void  print_frames_per_sec()  
 {
     char string_return[40];
+    switch(streaming_frm_per_sec)
+      {
+        case CAM_VIDEO_FPS_NONE:
+            strcpy(string_return,"STILL");
+            break;
+        case CAM_VIDEO_FPS_5:
+            strcpy(string_return,"5 FPS");
+            break;
+        case CAM_VIDEO_FPS_6:
+            strcpy(string_return,"6 FPS");
+            break;
+        case CAM_VIDEO_FPS_7_5:
+            strcpy(string_return,"7.5 FPS");
+            break;
+        case CAM_VIDEO_FPS_15 :
+            strcpy(string_return,"15 FPS");
+            break;
+        case CAM_VIDEO_FPS_30:
+            strcpy(string_return,"30 FPS");
+            break;
+        case CAM_VIDEO_FPS_60:
+            strcpy(string_return,"60 FPS");
+            break;
+        case CAM_VIDEO_FPS_120:
+            strcpy(string_return,"120 FPS");
+            break;
+      }
+    printf("frames_per_second:%s\n",string_return);         
+}
 
-    printf("camera_video_width:%i\n",streaming_video_width);        //Parameter #2 - image_format
-    printf("camera_video_height:%i\n",streaming_video_height);      //Parameter #3 - image_format
-
+//------------------------------------------------------
+// Get Camera sensor type
+//------------------------------------------------------
+void print_camera_sensor_type()
+{
+    char string_return[40];
     switch(camera_device_type)
     {
         case CAM_DEVICE_TYPE_UNKNOWN:
@@ -432,9 +455,26 @@ void get_camera_info()
             strcpy(string_return,"ISX019");
             break;
     }
-    printf("image_format:%s\n",string_return);                           //Parameter #4 - image_format
+    printf("image_sensor:%s\n",string_return);                          
+}
+
+
+//------------------------------------------------------
+// Get Camera global settings and send to PC
+//------------------------------------------------------
+void get_camera_info()
+{
+    char string_return[40];
+    printf("1. ");
+    print_frames_per_sec();                                              //Parameter #2 - frame_rate
+    printf("2. streaming_video_width:%i\n",streaming_video_width);       //Parameter #3 - image_format
+    printf("3. streaming_video_height:%i\n",streaming_video_height);     //Parameter #4 - image_format
+    printf("4. ");
     print_image_format(STREAMING_MODE);                                  //Parameter #5 - image_format
-    printf("jpgbufsize_divisor:%d\n",streaming_jpgbuff_div);       //Parameter #6 - jpgbufsize_divisor
+    printf("5. streaming_jpgbuf_div:%d\n",streaming_jpgbuff_div);        //Parameter #6 - jpgbufsize_divisor
+    printf("6. streaming_buff_num:%d\n",streaming_buff_num);             //Parameter #7 - streaming_buff_num
+    int32_t jpeg_buffer_size = (streaming_video_width * streaming_video_height * bytes_per_pixel) / streaming_jpgbuff_div;
+    printf("7. jpeg_buffer_size:%i\n",jpeg_buffer_size);                 //Parameter #8 - jpeg_buffer_size
 
     switch(white_balance_mode)
     {
@@ -460,15 +500,15 @@ void get_camera_info()
             strcpy(string_return,"SHADE");
             break;
     }
-    printf("white_balance_mode:%s\n",string_return);            //Parameter #7 - white_balance_mode
-    printf("jpeg_quality:%d\n",theCamera.getJPEGQuality());     //Parameter #8 - jpeg_quality
+    printf("white_balance_mode:%s\n",string_return);            //Parameter #9 - white_balance_mode
+    printf("jpeg_quality:%d\n",theCamera.getJPEGQuality());     //Parameter #10 - jpeg_quality
     switch(camera_scene_mode)
     {
         case CAM_SCENE_MODE_NONE:           //NOT SUPPORTED
             strcpy(string_return,"NONE");
             break;
     }
-    printf("scene_mode:%s\n",string_return);                    //Parameter #9 - camera_scene_mode
+    printf("scene_mode:%s\n",string_return);                    //Parameter #11 - camera_scene_mode
     switch(camera_color_fx)
     {
         case CAM_COLOR_FX_NONE :           
@@ -523,10 +563,9 @@ void get_camera_info()
             strcpy(string_return,"PASTEL");
             break;                                         
     }
-    printf("camera_fx:%s\n",string_return);                 //Parameter #10 - camera_fx
-    int32_t jpeg_buffer_size = (streaming_video_width * streaming_video_height * bytes_per_pixel) / streaming_jpgbuff_div;
-    printf("jpeg_buffer_size:%i\n",jpeg_buffer_size);       //Parameter #11 - jpeg_buffer_size
-    
+    printf("camera_fx:%s\n",string_return);                 //Parameter #12 - camera_fx    
+    print_camera_sensor_type();                             //Parameter #13 - image_sensor
+
     switch(camera_hdr_mode)
     {
         case CAM_HDR_MODE_OFF :           
@@ -539,7 +578,7 @@ void get_camera_info()
             strcpy(string_return,"ON");
             break;
     }
-    printf("high_dyn_range_mode:%s\n",string_return);       //Parameter #12 - high_dyn_range_mode
+    printf("high_dyn_range_mode:%s\n",string_return);       //Parameter #14 - high_dyn_range_mode
 
 //    int32_t cam_exposure = theCamera.getAbsoluteExposure();
 //        printf("Exposure Time:%7.3f ms\n",cam_exposure/100.0);
@@ -599,53 +638,6 @@ void print_image_format(int camera_mode)
         }
       printf("streaming_image_format:%s\n",string_return);            //Parameter #5 - image_format
     }
-}
-
-//----------------------------------------------------------
-// Send out frames per second setting, streaming mode
-// enum CAM_VIDEO_FPS {
-//   CAM_VIDEO_FPS_NONE, /**< Non frame rate. This is for Still Capture */
-//   CAM_VIDEO_FPS_5,    /**< 5 FPS */
-//   CAM_VIDEO_FPS_6,    /**< 6 FPS */
-//   CAM_VIDEO_FPS_7_5,  /**< 7.5 FPS */
-//   CAM_VIDEO_FPS_15,   /**< 15 FPS */
-//   CAM_VIDEO_FPS_30,   /**< 30 FPS */
-//   CAM_VIDEO_FPS_60,   /**< 60 FPS */
-//   CAM_VIDEO_FPS_120,  /**< 120 FPS */
-// };
-//----------------------------------------------------------
-void print_frames_per_sec()
-{
-  char string_return[40];
-
-  switch(streaming_frm_per_sec)
-    {
-      case CAM_VIDEO_FPS_NONE:
-          strcpy(string_return,"STILL");
-          break;
-      case CAM_VIDEO_FPS_5:
-          strcpy(string_return,"5 FPS");
-          break;
-      case CAM_VIDEO_FPS_6:
-          strcpy(string_return,"6 FPS");
-          break;
-      case CAM_VIDEO_FPS_7_5:
-          strcpy(string_return,"7.5 FPS");
-          break;
-      case CAM_VIDEO_FPS_15 :
-          strcpy(string_return,"15 FPS");
-          break;
-      case CAM_VIDEO_FPS_30:
-          strcpy(string_return,"30 FPS");
-          break;
-      case CAM_VIDEO_FPS_60:
-          strcpy(string_return,"60 FPS");
-          break;
-      case CAM_VIDEO_FPS_120:
-          strcpy(string_return,"120 FPS");
-          break;
-    }
-  printf("frames_per_second:%s\n",string_return);            //Parameter #5 - image_format
 }
 
 
