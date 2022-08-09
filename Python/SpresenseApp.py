@@ -10,7 +10,6 @@ from PIL import Image, ImageTk
 import serial
 from serial.tools import list_ports
 import time
-import os
 
 
 # =======================================================================
@@ -66,7 +65,6 @@ def connect_to_spresense():
             mprint('Initialization in progress...')
             abort_app = False
             break
-
     if abort_app:
         mprint('*** DID NOT FIND SPRESENSE MODULE ***')
         sg.popup_ok('Spresense Module Not Found!\nPlease exit the application', font=('Ariel', 20, 'bold'))
@@ -74,16 +72,16 @@ def connect_to_spresense():
         return abort_app  # returns True
     else:
         ser = serial.Serial(my_port, 1200000, timeout=7)
-        time.sleep(3.2)  # Spresense reboots when the com port shows up (and it is slow)
-        # get_camera_settings()                                   # Get Spresense default camera parameters
-        # parameter_from_spresense()
+        time.sleep(3.2)  # Spresense reboots/resets when the USB comm port shows up (and this is a slow process)
+        # parameters_to_spresense()
+        # get_camera_settings()
         mprint('Initialization Complete...')
         return abort_app  # returns False
 
 
 def handle_user_input_streaming_image_size(dimension):
-    global streaming_width
-    global streaming_height
+    global streaming_width          # defined in main
+    global streaming_height         # defined in main
     if dimension == 'width':
         try:
             streaming_width = int(values['-STREAMING_WIDTH-'])
@@ -94,7 +92,7 @@ def handle_user_input_streaming_image_size(dimension):
                 window['-STREAMING_WIDTH-'].update(streaming_width, text_color='red')
             elif int(streaming_width) < 2592+1:
                 window['-STREAMING_WIDTH-'].update(streaming_width, text_color='black')
-                sg.user_settings_set_entry('-STREAMING_WIDTH-', streaming_width)  # value change, save it
+                sg.user_settings_set_entry('-STREAMING_WIDTH-', str(streaming_width))  # value change, save it
             else:
                 window['-STREAMING_WIDTH-'].update(streaming_width, text_color='red')
     else:  # must be height
@@ -107,7 +105,7 @@ def handle_user_input_streaming_image_size(dimension):
                 window['-STREAMING_HEIGHT-'].update(streaming_height, text_color='red')
             elif int(streaming_height) < 1944+1:
                 window['-STREAMING_HEIGHT-'].update(streaming_height, text_color='black')
-                sg.user_settings_set_entry('-STREAMING_HEIGHT-', streaming_height)  # value change, save it
+                sg.user_settings_set_entry('-STREAMING_HEIGHT-', str(streaming_height))  # value change, save it
             else:
                 window['-STREAMING_HEIGHT-'].update(streaming_height, text_color='red')
 
@@ -123,12 +121,10 @@ def calculate_jpeg_buffer_size(which_buffer):
 
 
 # -------------------------------------------------
-# Spresense streaming image mode
+# Spresense streaming image mode (THREAD ROUTINE)
 # -------------------------------------------------
 def camera_streaming_mode(my_window):
-    global streaming_enabled
-    send_spresense_command('cam_stream_start\n', 5)
-
+    global spresense_camera_data
     mprint('--- Image Size ---')
     while streaming_enabled:
         start = time.time()  # start time for FPS calculation
@@ -148,12 +144,31 @@ def camera_streaming_mode(my_window):
             my_window['-FPS-'].update('%.3f' % fpsec)
 
 
+# -------------------------------------------------
+# Spresense still image snap shot
+# -------------------------------------------------
+def still_image_snapshot():
+    send_spresense_command('+\n', 0)
+    image_size = int(ser.readline())  # get the size (in bytes) of the image
+    mprint(image_size)
+    if image_size == 0:
+        mprint('jpeg buffer overflow')
+    if image_size > 0:
+        still_snapshot_data = ser.read(size=image_size)  # reads bytes from Spresense
+        image_tk = ImageTk.PhotoImage(data=still_snapshot_data)  # read raw array data and creates an imgtk
+        im_pil = ImageTk.getimage(image_tk)  # convert it to PIL image so we can resize it
+        resized_pil = im_pil.resize(still_ui_image_frame_size)  # resize it to fit still frame size
+        image = ImageTk.PhotoImage(image=resized_pil)  # convert it back to TK_image
+        window['-STILL_IMAGE-'].update(data=image)
+
+
 # --------------------------------------------------------------------------------
 # PC to Spresense command handler
 # Spresense response is stored in global varible: spresense_command_response_data
 # --------------------------------------------------------------------------------
 def send_spresense_command(command, response_lines):
-    global spresense_command_response_data
+    global spresense_command_response_data    # defined in main
+
     spresense_command_response_data = ""
 
     ser.write(command.encode())
@@ -163,7 +178,6 @@ def send_spresense_command(command, response_lines):
 
 
 def get_camera_settings():
-    global spresense_command_response_data
     send_spresense_command('cam_info\n', 14)
     mprint()
     mprint(spresense_command_response_data)
@@ -182,35 +196,22 @@ def parameters_from_spresense():
     mprint(spresense_command_response_data)
 
 
+# ---------------------------------------------------
+# Send 20 parameters to Spresense
+# ---------------------------------------------------
 def parameters_to_spresense():
-    # mprint(sg.user_settings_get_entry('-STREAMING_FPS-'))
-    # mprint(sg.user_settings_get_entry('-STREAMING_WIDTH-'))
-    # mprint(sg.user_settings_get_entry('-STREAMING_HEIGHT-'))
-    # mprint(sg.user_settings_get_entry('-STREAMING_PIX_FMT-'))
-    # mprint(sg.user_settings_get_entry('-STREAMING_JPEG_SIZE_DIV-'))
-    # mprint(sg.user_settings_get_entry('-STREAMING_JPEG_BUFFERS_COUNT-'))
-    # mprint(sg.user_settings_get_entry('-STREAMING_FILENAME-'))
-    # mprint(settings)
-    # mprint(settings.items())
-    # mprint(settings.keys())
-    # mprint(settings.values())
-    # f = open("Spresense.ini", "r")  # read in the ini file
-    # ini_file_data = f.read()
-    # start = [17,18,22,29,19,18,20,13,14,20,25,16,15,14,12,14,20,20,22,20]
-    # # Tells Spresense the ini parameter data is coming next
-    # ser.write( ("P+\n").encode() )
     settings = sg.user_settings()
     ser.write(('P+'+'\n').encode())
     mprint()
     new_response = ser.readline().decode('ascii')
     mprint(new_response)
     time.sleep(1)
+    ser.write((settings['-STREAMING_JPEG_BUFFERS_COUNT-'] + '\n').encode())
     ser.write((settings['-STREAMING_FPS-'] + '\n').encode())
     ser.write((settings['-STREAMING_WIDTH-'] + '\n').encode())
     ser.write((settings['-STREAMING_HEIGHT-'] + '\n').encode())
     ser.write((settings['-STREAMING_PIX_FMT-'] + '\n').encode())
     ser.write((settings['-STREAMING_JPEG_SIZE_DIV-'] + '\n').encode())
-    ser.write((settings['-STREAMING_JPEG_BUFFERS_COUNT-'] + '\n').encode())
     ser.write((settings['-STREAMING_FILENAME-'] + '\n').encode())
     ser.write(("lizard" + '\n').encode())
     ser.write(("bird" + '\n').encode())
@@ -227,17 +228,44 @@ def parameters_to_spresense():
     ser.write(("praying mantis4" + '\n').encode())
     new_response = ser.readline().decode('ascii')
     mprint(new_response)
-    # for x in range(1):
-    #     print(ser.readline().decode('ascii'), end='')
-    #     time.sleep(1)
-    # for line in range(len(start)):
-    #     pram = ini_file_data.splitlines()[line]
-    #     pram = pram[start[line]:]
-    #     update_the_user_interface(line+1, pram)      # update the UI for every parameter sent to Spresence
-    #     print(pram)
-    #     ser.write((pram + "\n").encode())           # Send the parameter to spresense
 
 
+def report_delta_t(leader_text, old_time):
+    new_time = time.time()
+    delta_t = new_time - old_time
+    mprint(leader_text, '%.3f' % delta_t)
+    return new_time
+
+
+# ---------------------------------------------------
+# For testing parameters to Spresense
+# ---------------------------------------------------
+def streaming_test_start():
+    global spresense_camera_data
+    mprint('--- Image Size ---')
+
+    start = time.time()  # start time for FPS calculation
+    image_size = int(ser.readline())  # get the size (in bytes) of the image
+    mprint('%.3f' % image_size)
+    if image_size == 0:
+        mprint('jpeg buffer overflow')
+    if image_size > 0:
+        spresense_camera_data = ser.read(size=image_size)  # reads bytes from Spresense
+        # spresense_camera_data = ser.read_until(b'\xff\xD9')  # reads bytes from Spresense, until end of Jpeg file
+        x_image_tk = ImageTk.PhotoImage(data=spresense_camera_data)  # read raw array data and creates an imgtk
+        im_pil = ImageTk.getimage(x_image_tk)  # convert it to PIL image so we can resize it
+        x_resized_pil = im_pil.resize(streaming_ui_image_frame_size)  # resize it to fit streaming frame size
+        x_image = ImageTk.PhotoImage(image=x_resized_pil)  # convert it back to TK_image
+        window['-STREAMING_IMAGE-'].update(data=x_image)
+        # mprint('')
+        endt = time.time()
+        fpsec = 1.0 / (endt - start)
+        window['-FPS-'].update('%.3f' % fpsec)
+        mprint(image_size, ',', '%.3f' % fpsec)
+
+    # send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
+
+    
 # ==========================================================================================================
 #     __  __       _          ____             _   _
 #    |  \/  | __ _(_)_ __    |  _ \ ___  _   _| |_(_)_ __   ___
@@ -247,8 +275,6 @@ def parameters_to_spresense():
 # ==========================================================================================================
 # MAIN
 # Start up code and main routine starts here
-# jpeg_buffer_size = (img_width * img_height * bytes_per_pixel) / jpgbufsize_divisor
-# bytes_per_pixel = 2
 # -------------------------------------------------
 sg.theme('DarkGreen3')
 # Some GLOBALS-------------------------------------
@@ -259,24 +285,32 @@ still_ui_image_frame_size = (500, 400)
 streaming_enabled = False
 sg.user_settings_filename(path='.')   # user_settings_filename = "This_filename.json" in the same directory
 spresense_command_response_data = ""
+spresense_camera_data = 0
 
 if not sg.user_settings_file_exists():
     sg.user_settings_set_entry('-STREAMING_FPS-', '5 FPS')
-    sg.user_settings_set_entry('-STREAMING_WIDTH-', '96')
-    sg.user_settings_set_entry('-STREAMING_HEIGHT-', '64')
+    sg.user_settings_set_entry('-STREAMING_WIDTH-', '250')
+    sg.user_settings_set_entry('-STREAMING_HEIGHT-', '200')
     sg.user_settings_set_entry('-STREAMING_PIX_FMT-', 'JPG')
     sg.user_settings_set_entry('-STREAMING_JPEG_SIZE_DIV-', '7')
     sg.user_settings_set_entry('-STREAMING_JPEG_BUFFERS_COUNT-', '1')
     sg.user_settings_set_entry('-STREAMING_FILENAME-', 'my_streaming.jpg')  # Streaming image file name
 
+    sg.user_settings_set_entry('-STILL_WIDTH-', '500')
+    sg.user_settings_set_entry('-STILL_HEIGHT-', '400')
+
 frame_rate = sg.user_settings_get_entry('-STREAMING_FPS-')
 streaming_width = int(sg.user_settings_get_entry('-STREAMING_WIDTH-'))
 streaming_height = int(sg.user_settings_get_entry('-STREAMING_HEIGHT-'))
+streaming_pix_format = sg.user_settings_get_entry('-STREAMING_PIX_FMT-')
 streaming_jpgbufsize_div = int(sg.user_settings_get_entry('-STREAMING_JPEG_SIZE_DIV-'))
 streaming_buff_cnt = int(sg.user_settings_get_entry('-STREAMING_JPEG_BUFFERS_COUNT-'))
 streaming_filename = sg.user_settings_get_entry('-STREAMING_FILENAME-')
 
-jpeg_buffer_size = (streaming_width * streaming_height * bytes_per_pixel) / int(streaming_jpgbufsize_div)
+still_width = int(sg.user_settings_get_entry('-STILL_WIDTH-'))
+still_height = int(sg.user_settings_get_entry('-STILL_HEIGHT-'))
+
+jpeg_buffer_size = int((streaming_width * streaming_height * bytes_per_pixel) / streaming_jpgbufsize_div)
 
 my_tab1_layout = [
     [sg.Frame('Streaming', [
@@ -289,8 +323,9 @@ my_tab1_layout = [
                                                          key='-STREAMING_WIDTH-'),
          sg.T('X'),
          sg.T('Height:'), sg.Input(streaming_height, size=5, enable_events=True, key='-STREAMING_HEIGHT-')],
-        [sg.T('Format:'), sg.Combo(['RGB565', 'YUV422', 'JPG', 'GRAY', 'NONE'], s=(7, 1), default_value='JPG',
-                                   readonly=True, key='-STREAMING_PIX_FMT-')],
+        [sg.T('Format:'), sg.Combo(['RGB565', 'YUV422', 'JPG', 'GRAY', 'NONE'], s=(7, 1),
+                                   default_value=streaming_pix_format, readonly=True, enable_events=True,
+                                   key='-STREAMING_PIX_FMT-')],
         [sg.Frame('JPEG Settings', [
             [sg.T('Div:'), sg.Combo([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
                                     s=(3, 1), default_value=streaming_jpgbufsize_div, readonly=True,
@@ -302,12 +337,20 @@ my_tab1_layout = [
                                                    key='-STREAMING_JPEG_BUFF_SIZE-')]])],
         [sg.Text('Streaming Filename:')], [sg.Input(streaming_filename, size=(32, 1), disabled=True,
                                                     key='-STREAMING_FILENAME-')]])],
+    [sg.Frame('Still Image', [
+        [sg.Text('Image size in pixels:')],
+        [sg.T('Width:', pad=((12, 5), (0, 0))), sg.Input(still_width, s=5, enable_events=True,
+                                                         key='-STILL_WIDTH-'),
+         sg.T('X'),
+         sg.T('Height:'), sg.Input(still_height, size=5, enable_events=True, key='-STILL_HEIGHT-')],
+        [sg.Button('Take a Still Image', expand_x=True, key='-SNAP_IMAGE-')]])]
+]
+
+my_tab2_layout = [
     [sg.Button('Send settings to Spresence camera', expand_x=True, key='-UPDATE_STREAMING_SETTINGS-')],
     [sg.Button('Get array data from Spresence', expand_x=True, key='-GET_SPRESENSE_ARRAY_DATA-')]
 ]
 
-
-my_tab2_layout = []
 my_tab3_layout = [
     [sg.Button('Get Versions', key='-VERSIONS-')]
 ]
@@ -342,14 +385,14 @@ right_column = [
 ]
 
 layout = [
-    [sg.VerticalSeparator(),
-     sg.Column(left_column),
-     sg.VerticalSeparator(),
-     sg.Column(middle_column),
-     sg.VerticalSeparator(),
-     sg.Column(right_column),
-     sg.VerticalSeparator()],
-    [sg.StatusBar('Status Bar: ...', size=80, key='-STAT_BAR-')]
+     [sg.VerticalSeparator(),
+      sg.Column(left_column),
+      sg.VerticalSeparator(),
+      sg.Column(middle_column),
+      sg.VerticalSeparator(),
+      sg.Column(right_column),
+      sg.VerticalSeparator()],
+     [sg.StatusBar('Status Bar: ...', size=80, key='-STAT_BAR-')]
 ]
 
 # -----------------------------------------------------------------------------------------------------------
@@ -380,9 +423,6 @@ while True:  # The Event Loop
     event, values = window.read()
     print('event:', event)        # This print, for debug only
     # print('values:', values)    # This print, for debug only
-    # if not streaming_video_thread_active:  # only do this once
-    #    threading.Thread(target=camera_steaming_mode, args=(window,), daemon=True).start()
-    #    streaming_video_thread_active = True
     if spresense_not_found:
         print('Spresense Comm Port not found')
         window.close()
@@ -403,20 +443,21 @@ while True:  # The Event Loop
         handle_user_input_streaming_image_size('height')
         calculate_jpeg_buffer_size('streaming')
     elif event == '-STREAMING_JPEG_SIZE_DIV-':
-        streaming_jpgbufsize_div = values['-STREAMING_JPEG_SIZE_DIV-']
+        streaming_jpgbufsize_div = int(values['-STREAMING_JPEG_SIZE_DIV-'])
+        sg.user_settings_set_entry('-STREAMING_JPEG_SIZE_DIV-', str(streaming_jpgbufsize_div))  # value change, save it
         calculate_jpeg_buffer_size('streaming')
     elif event == '-STREAMING_CHECKBOX-':
         if values['-STREAMING_CHECKBOX-']:  # if streaming checkbox is checked...
             print('Streaming active...')
             streaming_enabled = True
+            parameters_to_spresense()  # Send the current streaming settings to Spresense
+            send_spresense_command('cam_stream_start\n', 16)  # Tell Spresense to go into streaming mode
+            mprint()
+            mprint(spresense_command_response_data)
             window.perform_long_operation(lambda: camera_streaming_mode(window), '-THREAD-')
         else:
             streaming_enabled = False
             print('Streaming NOT active...')
-            # send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
-            # streaming_enabled = values['-STREAMING_CHECKBOX-']
-            # window.start_thread(lambda: my_function_with_parms(10), '-FUNCTION COMPLETED-')
-            # send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
     elif event == '-THREAD-':
         mprint('Streaming video stopped')
         send_spresense_command('cam_stream_stop\n', 0)  # tell the Spresense to stop streaming 2nd
@@ -429,6 +470,11 @@ while True:  # The Event Loop
         get_camera_settings()
     elif event == '-GET_SPRESENSE_ARRAY_DATA-':
         parameters_from_spresense()
+    elif event == '-STREAMING_PIX_FMT-':
+        streaming_pix_format = values['-STREAMING_PIX_FMT-']
+        sg.user_settings_set_entry('-STREAMING_PIX_FMT-', streaming_pix_format)  # value change, save it
+    elif event == '-SNAP_IMAGE-':
+        still_image_snapshot()
 
 window.close()
 

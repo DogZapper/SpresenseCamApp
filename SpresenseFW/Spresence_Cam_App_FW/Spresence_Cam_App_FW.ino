@@ -7,6 +7,7 @@
 //-----------------------
 #include <SDHCI.h>
 #include <stdio.h>
+#include <string.h>
 #include <Camera.h>
 #include <RTC.h>
 
@@ -39,7 +40,7 @@ int                 still_jpgbuff_div   = 7;                                    
                                                                                 //jpeg_buffer_size = 898,779 bytes
 //STREAMING MODE GLOBAL CAMERA VARIABLES
 int                 streaming_buff_num      = 1;                                //Default number of video stream buffers
-CAM_VIDEO_FPS       streaming_frm_per_sec   = CAM_VIDEO_FPS_60;                 //Default will be 30 fps
+CAM_VIDEO_FPS       streaming_frm_per_sec   = CAM_VIDEO_FPS_30;                 //Default will be 30 fps
 int                 streaming_video_width   = CAM_IMGSIZE_QVGA_H;               //Default video horizontal width is VGA (640)
 int                 streaming_video_height  = CAM_IMGSIZE_QVGA_V;               //Default video vertical height  is VGA (480)
 CAM_IMAGE_PIX_FMT   streaming_video_format  = CAM_IMAGE_PIX_FMT_JPG;            //Default = CAM_IMAGE_PIX_FMT_JPG
@@ -195,18 +196,19 @@ void handleCommand()
         else if(!strcmp(inbuffer,"P+"))
         {
             //camera parameters are coming in from the Python application
-            printf("--- Receiving parameters from Host PC ---\n");          
+            printf("--- Receiving parameters from PC ---\n");          
             handle_the_incoming_parameters();
             printf("Done...\n");    
+            // update_streaming_parameters();
         }
 
         else if(!strcmp(inbuffer,"P-"))
         {
             //send Spresence parameters back to Python (for debugging)
-            printf("--- Received Parameters ---\n"); 
+            printf("--- Spresense Parameters ---\n"); 
             for(int x=0; x<20; x++)
             {
-              printf("%d. %s\n",x+1,test_array[x]);
+              printf("%d. %s\n",x+1,camera_parameters[x]);
             }
         }
 
@@ -225,18 +227,18 @@ void handleCommand()
         else if(!strcmp(inbuffer,"cam_info"))
         {
             printf("--- Camera Info ---\n");            //Parameter #1 - Title
+            // update_streaming_parameters();
             get_camera_info();
         }
 
         else if(!strcmp(inbuffer,"cam_stream_start"))
         {
-            cam_streaming(True);
+            cam_streaming_initialize();
         }
 
         else if(!strcmp(inbuffer,"cam_stream_stop"))
         {
-            //cam_streaming(False);
-            theCamera.startStreaming(false,CamCB);    //STOP THE SONY CAMERA STREAMING
+            theCamera.startStreaming(false,CamCB);    //STOP THE SONY CAMERA STREAMING, (false = stop streaming)
             //Reset the UART
             Serial.begin(1200000);                    //UART RESET
             led_delay = 50;                           //video streaming complete... toggle LEDS at slower speed
@@ -273,7 +275,7 @@ void handle_the_incoming_parameters()
           if(incomingCharacter == 0x0a)                       // look for '\n'
           {
               *in_ptr++ = 0;                                  // add a string terminator to line buffer
-              strcpy(&test_array[x-1][0],inputLine);          // put the line buffer into the correct parameter buffer
+              strcpy(&camera_parameters[x-1][0],inputLine);   // put the line buffer into the correct parameter buffer
               in_ptr = inputLine;                             // initialize the pointer
               x++;                                            // count the lines processed
           }
@@ -290,36 +292,98 @@ void handle_the_incoming_parameters()
 
 
 //------------------------------------------------------
+// Update the six global streaming video parameters
+// STREAMING MODE GLOBAL CAMERA VARIABLES
+// int                 streaming_buff_num      = 1;                                //Default number of video stream buffers
+// CAM_VIDEO_FPS       streaming_frm_per_sec   = CAM_VIDEO_FPS_60;                 //Default will be 30 fps
+//       sg.Combo(['5 FPS', '6 FPS', '7.5 FPS', '15 FPS', '30 FPS', '60 FPS', '120 FPS'], size=(8, 1),
+// int                 streaming_video_width   = CAM_IMGSIZE_QVGA_H;               //Default video horizontal width is VGA (640)
+// int                 streaming_video_height  = CAM_IMGSIZE_QVGA_V;               //Default video vertical height  is VGA (480)
+// CAM_IMAGE_PIX_FMT   streaming_video_format  = CAM_IMAGE_PIX_FMT_JPG;            //Default = CAM_IMAGE_PIX_FMT_JPG
+//       sg.Combo(['RGB565', 'YUV422', 'JPG', 'GRAY', 'NONE']
+// int                 streaming_jpgbuff_div   = 7;                                //Default = jpg buffer divisor size 
+//
+// CAM_VIDEO_FPS_5,    /**< 5 FPS */
+// CAM_VIDEO_FPS_6,    /**< 6 FPS */
+// CAM_VIDEO_FPS_7_5,  /**< 7.5 FPS */
+// CAM_VIDEO_FPS_15,   /**< 15 FPS */
+// CAM_VIDEO_FPS_30,   /**< 30 FPS */
+// CAM_VIDEO_FPS_60,   /**< 60 FPS */
+// CAM_VIDEO_FPS_120,  /**< 120 FPS */
+//
+// enum CAM_IMAGE_PIX_FMT {
+  
+//   CAM_IMAGE_PIX_FMT_YUV422 = V4L2_PIX_FMT_UYVY,   /**< YUV422 packed. */
+//   CAM_IMAGE_PIX_FMT_JPG    = V4L2_PIX_FMT_JPEG,   /**< JPEG format */
+//   CAM_IMAGE_PIX_FMT_GRAY,                         /**< Gray-scale */
+//   CAM_IMAGE_PIX_FMT_NONE,                         /**< No defined format */
+// };
+//------------------------------------------------------
+void update_streaming_parameters()
+{
+    streaming_buff_num = atoi(&camera_parameters[0][0]);           //get current setting...
+
+    if(!strcmp(&camera_parameters[1][0],"5 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_5;                   //get current setting...
+    else if(!strcmp(&camera_parameters[1][0],"6 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_6;
+    else if(!strcmp(&camera_parameters[1][0],"7.5 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_7_5;
+    else if(!strcmp(&camera_parameters[1][0],"15 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_15;
+    else if(!strcmp(&camera_parameters[1][0],"30 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_30;
+    else if(!strcmp(&camera_parameters[1][0],"60 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_60;
+    else if(!strcmp(&camera_parameters[1][0],"120 FPS"))
+        streaming_frm_per_sec = CAM_VIDEO_FPS_120;
+
+    streaming_video_width = atoi(&camera_parameters[2][0]);        //get current setting...
+    streaming_video_height = atoi(&camera_parameters[3][0]);       //get current setting...
+
+    if(!strcmp(&camera_parameters[4][0],"RGB565"))
+        streaming_video_format = CAM_IMAGE_PIX_FMT_RGB565;                   //get current setting...
+    else if(!strcmp(&camera_parameters[4][0],"YUV422"))
+        streaming_video_format = CAM_IMAGE_PIX_FMT_YUV422;
+    else if(!strcmp(&camera_parameters[4][0],"JPG"))
+        streaming_video_format = CAM_IMAGE_PIX_FMT_JPG;
+    else if(!strcmp(&camera_parameters[4][0],"GRAY"))
+        streaming_video_format = CAM_IMAGE_PIX_FMT_GRAY;
+    else if(!strcmp(&camera_parameters[4][0],"NONE"))
+        streaming_video_format = CAM_IMAGE_PIX_FMT_NONE;
+
+    streaming_jpgbuff_div = atoi(&camera_parameters[5][0]);        //get current setting...
+}
+
+
+//------------------------------------------------------
 // Camera Streaming Video Mode Routine
 //------------------------------------------------------
-void cam_streaming(bool stream_active)
+void cam_streaming_initialize()
 {
     CamErr err;
-    led_delay = 0;                                          //during video streaming mode toggle LEDS at max speed
+    led_delay = 0;                                      //during video streaming mode toggle LEDS at max speed
 
-    if(stream_active == True)
-    {
-        printf("--- Camera Streaming Mode ---\n");          //Host PC serial line #1
-        print_image_format(STREAMING_MODE);                 //Host PC serial line #2
-        print_frames_per_sec();                             //Host PC serial line #3                
-        
-        err = theCamera.begin(
-            streaming_buff_num,                //current setting...
-            streaming_frm_per_sec,             //current setting...
-            streaming_video_width,             //current setting...
-            streaming_video_height,            //current setting...
-            streaming_video_format,            //current setting...
-            streaming_jpgbuff_div              //current setting...
-            ); 
-        camera_check_for_errors(err);                             //Host PC serial line #4
+    update_streaming_parameters();
+    printf("--- Camera Streaming Mode ---\n");          //Host PC serial line #1
+    get_camera_info();                                  //Host PC serial 13 lines
+
+    streaming_frm_per_sec = CAM_VIDEO_FPS_5;
+
+    theCamera.end();
     
-        err = theCamera.startStreaming(True,CamCB);               //CamCB is my call back routine, I get one of theses every video frame (I think?)
-        camera_check_for_errors(err);                             //Host PC serial line #5
-    }
-    else
-    {
-        Serial.flush(); 
-    }
+    err = theCamera.begin(
+        streaming_buff_num,                //current setting...
+        streaming_frm_per_sec,             //current setting...
+        streaming_video_width,             //current setting...
+        streaming_video_height,            //current setting...
+        streaming_video_format,            //current setting...
+        streaming_jpgbuff_div              //current setting...
+        ); 
+    camera_check_for_errors(err);                             //Host PC serial line #15
+
+    err = theCamera.startStreaming(True,CamCB);               //CamCB is my call back routine, I get one of theses every video frame (I think?)(True = streaming start)
+    camera_check_for_errors(err);                             //Host PC serial line #16
 }
 
 //****************************************************************************
