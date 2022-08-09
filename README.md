@@ -4,4 +4,4 @@ PySimpleGUI application plus Arduino Spresense firmware to test features of Sony
 Terry Carpenter
 terry.carpenter@yahoo.com
 
-![ScreenShot V0.0.11](ScreenShot.jpg)
+![ScreenShot](ScreenShot.jpg)
